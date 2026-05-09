@@ -39,11 +39,9 @@ from google.auth.transport.requests import Request
 #   SETTINGS - APNI INFO YAHAN DAALO
 # =============================================================
 
-# Local mein apni keys yahan daalo
-# GitHub pe automatically environment variables se aayengi
-import os as _os
-PEXELS_API_KEY  = _os.environ.get("PEXELS_API_KEY",  "APNI_PEXELS_KEY_YAHAN")
-CHANNEL_NAME    = _os.environ.get("CHANNEL_NAME",     "MyChannel")
+PEXELS_API_KEY  = "APNI_PEXELS_KEY_YAHAN"   # pexels.com/api se lo
+
+CHANNEL_NAME    = "MyChannel"                 # Tumhara channel name
 
 TOPICS = [
     "funny animals",
@@ -61,8 +59,8 @@ VIDEOS_PER_RUN  = 2         # ek run mein kitni videos
 DAILY_SCHEDULE  = ["09:00", "17:00"]   # daily kab chalao
 
 YOUTUBE_CLIENT_SECRETS = "client_secrets.json"
-FACEBOOK_PAGE_ID       = _os.environ.get("FACEBOOK_PAGE_ID",    "APNA_PAGE_ID_YAHAN")
-FACEBOOK_PAGE_TOKEN    = _os.environ.get("FACEBOOK_PAGE_TOKEN", "APNA_FB_TOKEN_YAHAN")
+FACEBOOK_PAGE_ID       = "APNA_PAGE_ID_YAHAN"
+FACEBOOK_PAGE_TOKEN    = "APNA_FB_TOKEN_YAHAN"
 
 CLIPS_FOLDER  = "pexels_clips"
 OUTPUT_FOLDER = "final_videos"

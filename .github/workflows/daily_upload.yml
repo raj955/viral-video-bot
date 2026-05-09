@@ -2,49 +2,72 @@ name: Daily Viral Video Auto Upload
 
 on:
   schedule:
-    - cron: '30 3 * * *'
-    - cron: '30 11 * * *'
+    # IST = UTC + 5:30
+    # Run 1: Roz 12:00 PM IST = 06:30 UTC (lunch time - sabse zyada views)
+    - cron: '30 6 * * *'
+    # Run 2: Roz 6:00 PM IST = 12:30 UTC (evening peak - India)
+    - cron: '30 12 * * *'
+    # Run 3: Tuesday aur Wednesday 3:30 PM IST = 10:00 UTC (best days)
+    - cron: '0 10 * * 2,3'
+
+  # Manual run bhi kar sako
   workflow_dispatch:
+    inputs:
+      topic:
+        description: 'Specific topic (optional)'
+        required: false
+        default: ''
+      count:
+        description: 'Kitni videos banao'
+        required: false
+        default: '2'
 
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg imagemagick fonts-liberation
+          sudo apt-get install -y ffmpeg imagemagick fonts-liberation libmagickwand-dev
           sudo sed -i 's/rights="none" pattern="@\*"/rights="read|write" pattern="@*"/' /etc/ImageMagick-6/policy.xml || true
+          echo "FFmpeg version: $(ffmpeg -version | head -1)"
 
       - name: Install Python packages
         run: |
+          pip install -q --upgrade pip
           pip install -q requests moviepy==1.0.3 \
             google-api-python-client google-auth-oauthlib \
-            schedule Pillow
+            schedule Pillow numpy decorator tqdm proglog \
+            imageio imageio-ffmpeg
 
-      - name: Create folders
+      - name: Create required folders
         run: mkdir -p pexels_clips final_videos music
 
-      - name: Restore YouTube token
+      - name: Restore YouTube credentials
         run: |
           if [ -n "${{ secrets.YOUTUBE_TOKEN }}" ]; then
             echo "${{ secrets.YOUTUBE_TOKEN }}" | base64 -d > token.pickle
-            echo "YouTube token restored"
+            echo "[OK] YouTube token restored"
+          else
+            echo "[WARN] YOUTUBE_TOKEN secret not set - YouTube upload will be skipped"
           fi
-
-      - name: Restore client secrets
-        run: |
           if [ -n "${{ secrets.YOUTUBE_CLIENT_SECRETS }}" ]; then
-            echo "${{ secrets.YOUTUBE_CLIENT_SECRETS }}" > client_secrets.json
+            echo '${{ secrets.YOUTUBE_CLIENT_SECRETS }}' > client_secrets.json
+            echo "[OK] client_secrets.json restored"
+          else
+            echo "[WARN] YOUTUBE_CLIENT_SECRETS not set - YouTube upload will be skipped"
           fi
 
       - name: Run video pipeline
@@ -53,16 +76,36 @@ jobs:
           CHANNEL_NAME:        ${{ secrets.CHANNEL_NAME }}
           FACEBOOK_PAGE_ID:    ${{ secrets.FACEBOOK_PAGE_ID }}
           FACEBOOK_PAGE_TOKEN: ${{ secrets.FACEBOOK_PAGE_TOKEN }}
-        run: python auto_viral.py --count 2
+        run: |
+          if [ -n "${{ github.event.inputs.topic }}" ]; then
+            python auto_viral.py --topic "${{ github.event.inputs.topic }}"
+          else
+            python auto_viral.py --count ${{ github.event.inputs.count || '2' }}
+          fi
 
-      - name: Upload log artifact
+      - name: Save upload log
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: upload-log-${{ github.run_number }}
-          path: upload_log.json
-          retention-days: 30
+          path: |
+            upload_log.json
+            final_videos/
+          retention-days: 7
 
-      - name: Show results
+      - name: Show results summary
         if: always()
-        run: cat upload_log.json 2>/dev/null || echo "No log"
+        run: |
+          echo "============================================"
+          echo "RESULTS:"
+          echo "============================================"
+          cat upload_log.json 2>/dev/null | python3 -c "
+          import json, sys
+          logs = json.load(sys.stdin)
+          for l in logs[-3:]:
+              print(f\"Topic  : {l.get('topic','?')}\")
+              print(f\"Status : {l.get('status','?')}\")
+              print(f\"YouTube: {l.get('youtube_url','Not uploaded')}\")
+              print(f\"Facebook:{l.get('facebook_url','Not uploaded')}\")
+              print('---')
+          " || echo "No log found"
