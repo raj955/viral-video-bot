@@ -1,0 +1,11 @@
+token.pickle
+client_secrets.json
+cookies.txt
+pexels_clips/
+final_videos/
+upload_log.json
+*.mp4
+__pycache__/
+*.pyc
+.env
+music/

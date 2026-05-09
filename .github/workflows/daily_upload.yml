@@ -1,0 +1,68 @@
+name: Daily Viral Video Auto Upload
+
+on:
+  schedule:
+    - cron: '30 3 * * *'
+    - cron: '30 11 * * *'
+  workflow_dispatch:
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg imagemagick fonts-liberation
+          sudo sed -i 's/rights="none" pattern="@\*"/rights="read|write" pattern="@*"/' /etc/ImageMagick-6/policy.xml || true
+
+      - name: Install Python packages
+        run: |
+          pip install -q requests moviepy==1.0.3 \
+            google-api-python-client google-auth-oauthlib \
+            schedule Pillow
+
+      - name: Create folders
+        run: mkdir -p pexels_clips final_videos music
+
+      - name: Restore YouTube token
+        run: |
+          if [ -n "${{ secrets.YOUTUBE_TOKEN }}" ]; then
+            echo "${{ secrets.YOUTUBE_TOKEN }}" | base64 -d > token.pickle
+            echo "YouTube token restored"
+          fi
+
+      - name: Restore client secrets
+        run: |
+          if [ -n "${{ secrets.YOUTUBE_CLIENT_SECRETS }}" ]; then
+            echo "${{ secrets.YOUTUBE_CLIENT_SECRETS }}" > client_secrets.json
+          fi
+
+      - name: Run video pipeline
+        env:
+          PEXELS_API_KEY:      ${{ secrets.PEXELS_API_KEY }}
+          CHANNEL_NAME:        ${{ secrets.CHANNEL_NAME }}
+          FACEBOOK_PAGE_ID:    ${{ secrets.FACEBOOK_PAGE_ID }}
+          FACEBOOK_PAGE_TOKEN: ${{ secrets.FACEBOOK_PAGE_TOKEN }}
+        run: python auto_viral.py --count 2
+
+      - name: Upload log artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upload-log-${{ github.run_number }}
+          path: upload_log.json
+          retention-days: 30
+
+      - name: Show results
+        if: always()
+        run: cat upload_log.json 2>/dev/null || echo "No log"
