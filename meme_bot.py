@@ -51,8 +51,7 @@ from google.auth.transport.requests import Request
 import os as _os
 CHANNEL_NAME        = _os.environ.get("CHANNEL_NAME",     "JoshiFamilyMemes")
 YOUTUBE_CLIENT_SECRETS = "client_secrets.json"
-FACEBOOK_PAGE_ID    = _os.environ.get("FACEBOOK_PAGE_ID",    "YOUR_PAGE_ID")
-FACEBOOK_PAGE_TOKEN = _os.environ.get("FACEBOOK_PAGE_TOKEN", "YOUR_FB_TOKEN")
+
 
 # Font
 FONT = r"C:\Windows\Fonts\arialbd.ttf"
@@ -592,8 +591,32 @@ def upload_youtube(path, title, desc, tags):
         return None
 
 
+    try:
+        with open(path, "rb") as f:
+            resp = requests.post(
+                f"https://graph.facebook.com/v18.0/{FACEBOOK_PAGE_ID}/videos",
+                timeout=600,
+                data={
+                    "title":        title[:255],
+                    "description":  desc,
+                    "access_token": FACEBOOK_PAGE_TOKEN,
+                },
+                files={"source": f},
+            )
+        if resp.status_code == 200:
+            url = f"https://www.facebook.com/video/{resp.json().get('id')}"
+            print(f"  [OK] Facebook LIVE: {url}")
+            return url
+        print(f"  [ERROR] Facebook {resp.status_code}: {resp.text[:100]}")
+        return None
+    except Exception as e:
+        print(f"  [ERROR] Facebook: {e}")
+        return None
+
+
+
 # =============================================================
-#   STEP 7: FACEBOOK UPLOAD
+#   FACEBOOK UPLOAD
 # =============================================================
 
 def upload_facebook(path, title, desc):
@@ -622,7 +645,6 @@ def upload_facebook(path, title, desc):
     except Exception as e:
         print(f"  [ERROR] Facebook: {e}")
         return None
-
 
 # =============================================================
 #   MAIN PIPELINE
