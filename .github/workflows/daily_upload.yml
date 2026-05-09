@@ -1,31 +1,35 @@
-name: Daily Viral Video Auto Upload
+name: Viral Sach - Daily Auto Shorts
 
 on:
   schedule:
     # IST = UTC + 5:30
-    # Run 1: Roz 12:00 PM IST = 06:30 UTC (lunch time - sabse zyada views)
-    - cron: '30 6 * * *'
-    # Run 2: Roz 6:00 PM IST = 12:30 UTC (evening peak - India)
-    - cron: '30 12 * * *'
-    # Run 3: Tuesday aur Wednesday 3:30 PM IST = 10:00 UTC (best days)
-    - cron: '0 10 * * 2,3'
+    # Post 1: Roz 12:30 PM IST = 07:00 UTC (lunch break - peak India)
+    - cron: '0 7 * * *'
+    # Post 2: Roz 8:00 PM IST = 14:30 UTC (evening peak - max views India)
+    - cron: '30 14 * * *'
+    # Post 3: Tue + Fri 3:00 PM IST = 09:30 UTC (best days bonus post)
+    - cron: '30 9 * * 2,5'
 
-  # Manual run bhi kar sako
   workflow_dispatch:
     inputs:
-      topic:
-        description: 'Specific topic (optional)'
+      bot_type:
+        description: 'Kaunsa bot chalao?'
+        required: true
+        default: 'meme'
+        type: choice
+        options:
+          - meme
+          - pexels
+          - both
+      creator:
+        description: 'Creator (sourav/amit/carry/round2hell/triggered/ashish/bhuvan)'
         required: false
-        default: ''
-      count:
-        description: 'Kitni videos banao'
-        required: false
-        default: '2'
+        default: 'sourav'
 
 jobs:
-  run-pipeline:
+  post-short:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Checkout code
@@ -40,20 +44,21 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg imagemagick fonts-liberation libmagickwand-dev
-          sudo sed -i 's/rights="none" pattern="@\*"/rights="read|write" pattern="@*"/' /etc/ImageMagick-6/policy.xml || true
-          echo "FFmpeg version: $(ffmpeg -version | head -1)"
+          sudo apt-get install -y ffmpeg imagemagick fonts-liberation \
+            libmagickwand-dev python3-numpy
+          sudo sed -i 's/rights="none" pattern="@\*"/rights="read|write" pattern="@*"/' \
+            /etc/ImageMagick-6/policy.xml || true
+          echo "FFmpeg: $(ffmpeg -version | head -1)"
 
       - name: Install Python packages
         run: |
-          pip install -q --upgrade pip
-          pip install -q requests moviepy==1.0.3 \
+          pip install -q yt-dlp moviepy==1.0.3 requests schedule \
             google-api-python-client google-auth-oauthlib \
-            schedule Pillow numpy decorator tqdm proglog \
-            imageio imageio-ffmpeg
+            Pillow numpy decorator tqdm proglog imageio imageio-ffmpeg
 
-      - name: Create required folders
-        run: mkdir -p pexels_clips final_videos music
+      - name: Create folders
+        run: |
+          mkdir -p pexels_clips final_videos shorts_output source_videos music
 
       - name: Restore YouTube credentials
         run: |
@@ -61,51 +66,94 @@ jobs:
             echo "${{ secrets.YOUTUBE_TOKEN }}" | base64 -d > token.pickle
             echo "[OK] YouTube token restored"
           else
-            echo "[WARN] YOUTUBE_TOKEN secret not set - YouTube upload will be skipped"
+            echo "[WARN] YOUTUBE_TOKEN not set"
           fi
           if [ -n "${{ secrets.YOUTUBE_CLIENT_SECRETS }}" ]; then
             echo '${{ secrets.YOUTUBE_CLIENT_SECRETS }}' > client_secrets.json
             echo "[OK] client_secrets.json restored"
           else
-            echo "[WARN] YOUTUBE_CLIENT_SECRETS not set - YouTube upload will be skipped"
+            echo "[WARN] YOUTUBE_CLIENT_SECRETS not set"
           fi
 
-      - name: Run video pipeline
+      - name: Decide which bot to run
+        id: decide
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "bot=${{ github.event.inputs.bot_type }}" >> $GITHUB_OUTPUT
+            echo "creator=${{ github.event.inputs.creator }}" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          HOUR=$(date -u +%H)
+          DAY=$(date +%u)
+
+          # 07:00 UTC = 12:30 PM IST → meme bot
+          # 14:30 UTC = 08:00 PM IST → pexels bot
+          # 09:30 UTC Tue/Fri        → meme bot bonus
+
+          CREATORS=(sourav amit carry round2hell triggered ashish bhuvan thugesh)
+          IDX=$((($DAY - 1) % 8))
+          CREATOR=${CREATORS[$IDX]}
+
+          if [ "$HOUR" = "07" ] || [ "$HOUR" = "09" ]; then
+            echo "bot=meme" >> $GITHUB_OUTPUT
+            echo "creator=$CREATOR" >> $GITHUB_OUTPUT
+            echo "Selected: meme bot with $CREATOR"
+          else
+            echo "bot=pexels" >> $GITHUB_OUTPUT
+            echo "creator=" >> $GITHUB_OUTPUT
+            echo "Selected: pexels bot"
+          fi
+
+      - name: Run MEME BOT
+        if: steps.decide.outputs.bot == 'meme' || steps.decide.outputs.bot == 'both'
         env:
-          PEXELS_API_KEY:      ${{ secrets.PEXELS_API_KEY }}
-          CHANNEL_NAME:        ${{ secrets.CHANNEL_NAME }}
+          CHANNEL_NAME:        "Viral Sach"
           FACEBOOK_PAGE_ID:    ${{ secrets.FACEBOOK_PAGE_ID }}
           FACEBOOK_PAGE_TOKEN: ${{ secrets.FACEBOOK_PAGE_TOKEN }}
         run: |
-          if [ -n "${{ github.event.inputs.topic }}" ]; then
-            python auto_viral.py --topic "${{ github.event.inputs.topic }}"
-          else
-            python auto_viral.py --count ${{ github.event.inputs.count || '2' }}
-          fi
+          CREATOR="${{ steps.decide.outputs.creator }}"
+          if [ -z "$CREATOR" ]; then CREATOR="sourav"; fi
+          echo "Meme bot: $CREATOR"
+          python meme_bot.py --channel "$CREATOR"
 
-      - name: Save upload log
+      - name: Run PEXELS BOT
+        if: steps.decide.outputs.bot == 'pexels' || steps.decide.outputs.bot == 'both'
+        env:
+          PEXELS_API_KEY:      ${{ secrets.PEXELS_API_KEY }}
+          CHANNEL_NAME:        "Viral Sach"
+          FACEBOOK_PAGE_ID:    ${{ secrets.FACEBOOK_PAGE_ID }}
+          FACEBOOK_PAGE_TOKEN: ${{ secrets.FACEBOOK_PAGE_TOKEN }}
+        run: |
+          python auto_viral.py --count 1
+
+      - name: Upload logs
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: upload-log-${{ github.run_number }}
+          name: logs-${{ github.run_number }}
           path: |
+            meme_log.json
             upload_log.json
-            final_videos/
-          retention-days: 7
+          retention-days: 30
 
-      - name: Show results summary
+      - name: Show results
         if: always()
         run: |
-          echo "============================================"
+          echo "========================================"
           echo "RESULTS:"
-          echo "============================================"
-          cat upload_log.json 2>/dev/null | python3 -c "
+          echo "========================================"
+          for f in meme_log.json upload_log.json; do
+            if [ -f "$f" ]; then
+              echo "--- $f ---"
+              python3 -c "
           import json, sys
-          logs = json.load(sys.stdin)
-          for l in logs[-3:]:
-              print(f\"Topic  : {l.get('topic','?')}\")
-              print(f\"Status : {l.get('status','?')}\")
-              print(f\"YouTube: {l.get('youtube_url','Not uploaded')}\")
-              print(f\"Facebook:{l.get('facebook_url','Not uploaded')}\")
-              print('---')
-          " || echo "No log found"
+          logs = json.load(open('$f'))
+          for l in logs[-2:]:
+              print(f\"  Status  : {l.get('status','?')}\")
+              print(f\"  YouTube : {l.get('youtube_url','--')}\")
+              print(f\"  Facebook: {l.get('facebook_url','--')}\")
+              print()
+          "
+            fi
+          done
